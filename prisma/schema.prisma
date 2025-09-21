@@ -23,6 +23,7 @@ model Session {
   userId    String
   name      String   // nama session / folder (biasanya email)
   path      String   // path ke userDataDir
+  nomorAkun String? 
   createdAt DateTime @default(now())
 }
 

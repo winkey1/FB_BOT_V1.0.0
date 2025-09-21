@@ -11,8 +11,11 @@ export default function DashboardClient() {
   const [groupsFile, setGroupsFile] = useState<File | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [comment, setComment] = useState('');
+  const [caption, setCaption] = useState('');
   const [loading, setLoading] = useState(false);
   const [log, setLog] = useState<string | null>(null);
+  const [concurrency, setConcurrency] = useState(3);
+  const [groupLimit, setGroupLimit] = useState(20);
 
   useEffect(()=>{ fetchSessions(); }, []);
 
@@ -32,22 +35,33 @@ export default function DashboardClient() {
     setLog(null);
     const fd = new FormData();
     fd.append('file', csvFile);
+    fd.append('concurrency', String(concurrency));
+    try {
     const res = await fetch('/api/sessions/upload', { method: 'POST', body: fd });
-    const j = await res.json();
-    setLoading(false);
+    console.log('status:', res.status);
+    const text = await res.text();
+    console.log('response:', text);
+    const j = JSON.parse(text);
     setLog(JSON.stringify(j, null, 2));
-    fetchSessions();
+  } catch (err) {
+    console.error('fetch error', err);
+    setLog(String(err));
   }
+  setLoading(false);
+  fetchSessions();
+}
 
   async function startJoinGroups() {
     if (!groupsFile) return alert('Pilih CSV group_link terlebih dahulu');
     const sel = Object.keys(selected).filter(k=>selected[k]).map(id => sessions.find(s=>s.id===id)?.name).filter(Boolean);
     if (sel.length === 0) return alert('Pilih minimal 1 session dari tabel');
     setLoading(true);
-    setLog(null);
+    setLog('⏳ Menjalankan proses join grup...');
     const fd = new FormData();
     fd.append('file', groupsFile);
     fd.append('sessions', JSON.stringify(sel));
+    fd.append('groupLimit', String(groupLimit));
+    fd.append('concurrency', String(concurrency));
     const res = await fetch('/api/groups/join', { method: 'POST', body: fd });
     const j = await res.json();
     setLoading(false);
@@ -80,7 +94,9 @@ export default function DashboardClient() {
     const fd = new FormData();
     fd.append('image', imageFile);
     fd.append('comment', comment);
+    fd.append('caption', caption);
     fd.append('sessions', JSON.stringify(sel));
+    fd.append('concurrency', String(concurrency));
     const res = await fetch('/api/post/start', { method: 'POST', body: fd });
     const j = await res.json();
     setLoading(false);
@@ -130,20 +146,47 @@ export default function DashboardClient() {
         )}
 
         <hr />
+        <h4>Masukan berapa tab yang yang akan berjalan</h4>
+        <div className="form-row">
+          <label>Concurrency (jumlah sesi paralel)</label>
+          <input
+          type="number"
+           min={1}
+              max={10}
+              value={concurrency}
+              onChange={e => setConcurrency(parseInt(e.target.value) || 1)}
+          />
+        </div>
+
+        <hr />
 
         <h4>1) Tambah Session via CSV (email,password)</h4>
         <div style={{display:'flex', gap:8}}>
           <input type="file" accept=".csv" onChange={e=>setCsvFile(e.target.files?.[0] ?? null)} />
           <button className="button" onClick={uploadCSVAndStart} disabled={loading}>{loading ? 'Proses...' : 'Mulai'}</button>
+          <button className="button secondary" onClick={stopAll}>Berhenti</button>
         </div>
 
         <hr />
 
         <h4>2) Join Groups</h4>
-        <div style={{display:'flex', gap:8}}>
-          <input type="file" accept=".csv" onChange={e=>setGroupsFile(e.target.files?.[0] ?? null)} />
-          <button className="button" onClick={startJoinGroups} disabled={loading}>{loading ? 'Proses...' : 'Mulai Tambah Grup'}</button>
+        <div className="form-row">
+        <label>Batas grup per session</label>
+        <input
+        type="number"
+        min={1}
+        max={50}
+        value={groupLimit}
+        onChange={e => setGroupLimit(parseInt(e.target.value) || 1)}
+        />
         </div>
+    <div style={{display:'flex', gap:8}}>
+      <input type="file" accept=".csv" onChange={e=>setGroupsFile(e.target.files?.[0] ?? null)} />
+      <button className="button" onClick={startJoinGroups} disabled={loading}>
+       {loading ? 'Proses...' : 'Mulai Tambah Grup'}
+      </button>
+      <button className="button secondary" onClick={stopAll}>Berhenti</button>
+    </div>
 
         <hr />
 
@@ -151,6 +194,10 @@ export default function DashboardClient() {
         <div className="form-row">
           <label>Gambar untuk di-upload</label>
           <input type="file" accept="image/*" onChange={e=>setImageFile(e.target.files?.[0] ?? null)} />
+        </div>
+        <div className="form-row">
+          <label>Caption untuk semua posting</label>
+          <textarea rows={2} value={caption} onChange={e=>setCaption(e.target.value)} />
         </div>
         <div className="form-row">
           <label>Komentar untuk semua posting</label>
