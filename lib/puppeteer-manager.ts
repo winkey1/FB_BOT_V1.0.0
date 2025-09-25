@@ -42,96 +42,93 @@ function ensureUserDir(userId: string) {
 }
 
 export async function startCreateSessions(userId: string, accounts: Account[], concurrency: number) {
-  const jobId = uuidv4();
-  JOBS.set(jobId, { browsers: [], stopRequested: false });
-  const job = JOBS.get(jobId)!;
+    const jobId = uuidv4();
+    JOBS.set(jobId, { browsers: [], stopRequested: false });
+    const job = JOBS.get(jobId)!;
 
-  const userDir = ensureUserDir(userId);
-  let index = 0;
-  const results: any[] = [];
+    const userDir = ensureUserDir(userId);
+    let index = 0;
+    const results: any[] = [];
+    const successSelector = `
+        [aria-label="Buat cerita"], 
+        [aria-label="Video siaran langsung"], 
+        [aria-label="Create story"],
+	      [aria-label="Live video"]
+    `;	
 
-  async function worker() {
-    while (index < accounts.length && !job.stopRequested) {
-      const i = index++;
-      const acc = accounts[i];
-      const sessName = sanitizeName(acc.nomorAkun);
-      const sessionPath = path.join(userDir, sessName);
+    async function worker() {
+        while (index < accounts.length && !job.stopRequested) {
+            const i = index++;
+            const acc = accounts[i];
+            const sessName = sanitizeName(acc.nomorAkun);
+            const sessionPath = path.join(userDir, sessName);
+            let browser: Browser | null = null;
 
-      try {
-        // pastikan folder ada
-        if (!fs.existsSync(sessionPath)) fs.mkdirSync(sessionPath, { recursive: true });
+            try {
+                if (!fs.existsSync(sessionPath)) fs.mkdirSync(sessionPath, { recursive: true });
 
-        const browser = await puppeteer.launch({
-          headless: false,
-          userDataDir: sessionPath,
-          args: ['--no-sandbox', '--disable-setuid-sandbox']
-        });
-        job.browsers.push(browser);
+                browser = await puppeteer.launch({
+                    headless: false,
+                    userDataDir: sessionPath,
+                    args: ['--no-sandbox', '--disable-setuid-sandbox']
+                });
+                
+                const page = await browser.newPage();
+                await page.goto('https://www.facebook.com', { waitUntil: 'networkidle2', timeout: 30000 });
 
-        const page = await browser.newPage();
-        await page.goto('https://www.facebook.com', { waitUntil: 'networkidle2', timeout: 30000 }).catch(()=>{});
-        // isi form login Facebook (selector standar)
-        try {
-          await page.waitForSelector('#email', { timeout: 10000 });
-          await page.type('#email', acc.email, { delay: 200 });
-          await page.type('#pass', acc.password, { delay: 200 });
-          await page.keyboard.press('Enter');
-          // tunggu navigasi atau delay fallback
-          await Promise.race([
-            page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }).catch(()=>{}),
-            delay(8000)
-          ]);
-          await delay(180000);
-          results.push({ 
-            nomorAkun: acc.nomorAkun,  
-            email: acc.email, 
-            ok: true, 
-            path: sessionPath,
-          });
-        } catch (err) {
-          results.push({ 
-          nomorAkun: acc.nomorAkun, 
-          email: acc.email, 
-          ok: false, 
-          message: 'Gagal login atau selector berubah' 
-        });
+                // ... (Sisa logika login Anda tidak perlu diubah)
+                try {
+                    await page.waitForSelector(successSelector, { timeout: 7000 });
+                    results.push({
+                        nomorAkun: acc.nomorAkun, email: acc.email, ok: true,
+                        path: sessionPath, message: 'Sesi sudah ada dan valid'
+                    });
+                } catch (e) {
+                    console.log(`Sesi untuk ${acc.nomorAkun} tidak valid, mencoba login...`);
+                    try {
+                        await page.waitForSelector('input[name="email"][type="text"]', { timeout: 100000 });
+                        await page.type('input[name="email"][type="text"]', acc.email, { delay: 100 });
+                        await page.type('input[name="pass"][type="password"]', acc.password, { delay: 100 });
+                        await page.keyboard.press('Enter');
+                        await page.waitForSelector(successSelector, { timeout: 7000 });
+                        results.push({
+                            nomorAkun: acc.nomorAkun, email: acc.email, ok: true,
+                            path: sessionPath, message: 'Login berhasil, sesi baru dibuat'
+                        });
+                    } catch (loginErr) {
+                        results.push({
+                            nomorAkun: acc.nomorAkun, email: acc.email, ok: false,
+                            message: 'Gagal login: email/password salah atau halaman berubah.'
+                        });
+                    }
+                }
 
+            } catch (err: any) {
+                results.push({
+                    nomorAkun: acc.nomorAkun, email: acc.email, ok: false,
+                    message: 'Gagal membuka browser atau koneksi ke Facebook bermasalah.'
+                });
+            } finally {
+                if (browser) {
+                    await browser.close();
+                }
+            }
+            if (job.stopRequested) break;
         }
-        await browser.close();
-        job.browsers = job.browsers.filter(b => b !== browser);
-      } catch (err: any) {
-        results.push({ 
-          nomorAkun: acc.nomorAkun, 
-          email: acc.email, 
-          ok: false, 
-          message: 'Gagal login atau selector berubah' 
-        });
-
-      }
-
-       
-      if (job.stopRequested) break;
     }
-  }
 
-  // jalankan worker sesuai concurrency
-  const workers = Array.from({ length: concurrency }, () => worker());
-  await Promise.all(workers);
-
-  JOBS.delete(jobId);
-  const successCount = results.filter(r => r.ok === true).length;
-  const failCount = results.filter(r => r.ok === false).length;
-
-  console.log(`📊 Summary Create Sessions: ${successCount} berhasil, ${failCount} gagal`);
-
-  return {
-    jobId,
-    results,
-    summary: {
-      success: successCount,
-      failed: failCount
-    }
-  };
+    const workers = Array.from({ length: concurrency }, () => worker());
+    Promise.all(workers);
+    JOBS.delete(jobId);
+    
+    const successCount = results.filter(r => r.ok === true).length;
+    const failCount = results.filter(r => r.ok === false).length;
+    console.log(`📊 Summary Create Sessions: ${successCount} berhasil, ${failCount} gagal`);
+    
+    return {
+        jobId, results,
+        summary: { success: successCount, failed: failCount }
+    };
 }
 
 export async function startJoinGroups(
@@ -202,9 +199,11 @@ export async function startJoinGroups(
           let joined = false;
           try {
             await page.goto(link, { waitUntil: 'networkidle2', timeout: 30000 });
-
+            const joinBtnSelec =`
+              //span[text()="Gabung ke grup"] | //span[text()="Join Group"]
+            `;
             const joinBtn = await page.waitForSelector(
-              "xpath///span[text()='Gabung ke grup']",
+              joinBtnSelec,
               { timeout: 10000 }
             ).catch(() => null);
 
@@ -251,16 +250,17 @@ export async function startJoinGroups(
 }
 
 async function postCommentDirectly(page: Page, text: string) {
-  const COMMENT_TEXTBOX_SELECTOR = 'div[aria-label="Komentari sebagai Peserta anonim"][role="textbox"]';
-
+  const COMMENT_TEXTBOX_SELECTOR =`
+        div[aria-label="Komentari sebagai Peserta anonim"] | div[aria-label="Comment as Anonymous participant"]
+      `;
   try {
     const commentTextbox = await page.waitForSelector(COMMENT_TEXTBOX_SELECTOR, { visible: true, timeout: 15000 });
     if (!commentTextbox) return false;
 
-    await commentTextbox.focus(); // fokus dulu ke textbox
-    await page.keyboard.type(text, { delay: 80 }); // ketik isi komentar
+    await commentTextbox.focus();
+    await page.keyboard.type(text, { delay: 80 }); 
     await delay(5000);
-    await page.keyboard.press('Enter'); // kirim komentar
+    await page.keyboard.press('Enter'); 
 
     return true;
   } catch (error) {
@@ -284,17 +284,23 @@ async function attemptPostingWithRetries(
     if (job.stopRequested) return false;
 
     try {
-      // klik tombol "Postingan Anonim" kalau ada
-      const anonBtn = await page.waitForSelector("xpath///span[text()='Postingan Anonim']", { timeout: 10000 }).catch(()=>null);
+      const anonBtnSelec =`
+        //span[text()="Postingan Anonim"] | //span[text()="Anonymous post"]
+      `;
+
+      const anonBtn = await page.waitForSelector(anonBtnSelec, { timeout: 10000 }).catch(()=>null);
       if(anonBtn){
       if (job.stopRequested) return false;
       if (anonBtn) await anonBtn.click().catch(()=>{});
-
-      const createAnonBtn = await page.waitForSelector("xpath///span[text()='Buat Postingan Anonim']", { timeout: 10000 }).catch(()=>null);
+      const createAnonBtnSelec =`
+        //span[text()="Buat Postingan Anonim"] | //span[text()="Create Anonymous Post"]
+      `;
+      const createAnonBtn = await page.waitForSelector(createAnonBtnSelec,{ timeout: 10000 }).catch(()=>null);
       if (job.stopRequested) return false;
       if (createAnonBtn) await createAnonBtn.click().catch(()=>{});
-
-      const textAreaSelector = 'div[aria-placeholder="Kirim postingan anonim..."]';
+        const textAreaSelector =`
+        [aria-placeholder="Kirim postingan anonim..."] | [aria-placeholder="Submit an anonymous post..."]
+      `;
       await page.waitForSelector(textAreaSelector, { visible: true, timeout: 10000 }).catch(()=>{});
       if (job.stopRequested) return false;
 
@@ -311,7 +317,10 @@ async function attemptPostingWithRetries(
       await page.type(textAreaSelector, captionText);
 
       // tunggu tombol "Kirim" aktif
-      const postButtonSelector = 'div[aria-label="Kirim"][role="button"]:not([aria-disabled="true"])';
+      const postButtonSelector =`
+        [aria-label="Kirim"][role="button"] | [aria-label="Submit"][role="button"]
+      `;
+
       await page.waitForSelector(postButtonSelector, { visible: true, timeout: 60000 });
       // klik kirim
       await page.click(postButtonSelector);
@@ -327,22 +336,30 @@ async function attemptPostingWithRetries(
       }
 
     }else{
-      const currentUrl = page.url();
-  const buySellUrl = currentUrl.endsWith('/')
+    const currentUrl = page.url();
+    const buySellUrl = currentUrl.endsWith('/')
     ? `${currentUrl}buy_sell_discussion`
     : `${currentUrl}/buy_sell_discussion`;
 
       await page.goto(buySellUrl, { waitUntil: 'networkidle2', timeout: 30000 }).catch(() => {});
       if (job.stopRequested) return false;
-      const anonBtn = await page.waitForSelector("xpath///span[text()='Postingan Anonim']", { timeout: 10000 }).catch(()=>null);
+      const anonBtnSelec =`
+        //span[text()="Postingan Anonim"] | //span[text()="Anonymous post"]
+      `;
+      const anonBtn = await page.waitForSelector(anonBtnSelec, { timeout: 10000 }).catch(()=>null);
       if (job.stopRequested) return false;
       if (anonBtn) await anonBtn.click().catch(()=>{});
 
-      const createAnonBtn = await page.waitForSelector("xpath///span[text()='Buat Postingan Anonim']", { timeout: 10000 }).catch(()=>null);
+      const createAnonBtnSelec =`
+        //span[text()="Buat Postingan Anonim"] | //span[text()="Create Anonymous Post"]
+      `;
+      const createAnonBtn = await page.waitForSelector(createAnonBtnSelec,{ timeout: 10000 }).catch(()=>null);
       if (job.stopRequested) return false;
       if (createAnonBtn) await createAnonBtn.click().catch(()=>{});
 
-      const textAreaSelector = 'div[aria-placeholder="Kirim postingan anonim..."]';
+      const textAreaSelector =`
+        [aria-placeholder="Kirim postingan anonim..."] | [aria-placeholder="Submit an anonymous post..."]
+      `;
       await page.waitForSelector(textAreaSelector, { visible: true, timeout: 10000 }).catch(()=>{});
       if (job.stopRequested) return false;
 
@@ -358,14 +375,13 @@ async function attemptPostingWithRetries(
 
       await page.type(textAreaSelector, captionText);
 
-      // tunggu tombol "Kirim" aktif
-      const postButtonSelector = 'div[aria-label="Kirim"][role="button"]:not([aria-disabled="true"])';
+      const postButtonSelector =`
+        [aria-label="Kirim"][role="button"] | [aria-label="Submit"][role="button"]
+      `;
       await page.waitForSelector(postButtonSelector, { visible: true, timeout: 60000 });
-      // klik kirim
+ 
       await page.click(postButtonSelector);
 
-
-      // coba komentar setelah posting
       const commentOk = await postCommentDirectly(page, text);
 
       if (commentOk) {

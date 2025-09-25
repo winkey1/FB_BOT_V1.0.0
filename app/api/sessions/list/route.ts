@@ -14,8 +14,14 @@ export async function GET(req: Request) {
 
   const sessions = await prisma.session.findMany({
     where: { userId },
-    orderBy: { createdAt: 'desc' }
   });
+
+  sessions.sort((a, b) => {
+  const numA = parseInt(a.name.toLowerCase().replace('fb', ''), 10);
+  const numB = parseInt(b.name.toLowerCase().replace('fb', ''), 10);
+  return numA - numB;
+});
+console.log(sessions.map(s => s.name));
 
   return NextResponse.json({ sessions });
 }
