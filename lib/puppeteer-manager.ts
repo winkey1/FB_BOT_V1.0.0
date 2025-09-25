@@ -199,21 +199,16 @@ export async function startJoinGroups(
           let joined = false;
           try {
             await page.goto(link, { waitUntil: 'networkidle2', timeout: 30000 });
-            const joinBtnSelec =`
-              //span[text()="Gabung ke grup"] | //span[text()="Join Group"]
-            `;
-            const joinBtn = await page.waitForSelector(
-              joinBtnSelec,
-              { timeout: 10000 }
-            ).catch(() => null);
+            const joinBtn = await page.waitForSelector('xpath///span[text()="Gabung ke grup"]',{ timeout: 10000 }).catch(() => null);
 
             if (joinBtn) {
               await delay(1000);
               await joinBtn.click().catch(() => {});
               await delay(3000);
               joined = true;
+            } else {
+              await page.click('xpath///span[text()="Join Group"]').catch(() => null);
             }
-
             sessionResults.push({ group: link, ok: joined });
             if (joined) sessionSuccess++;
             else sessionFail++;
@@ -250,11 +245,9 @@ export async function startJoinGroups(
 }
 
 async function postCommentDirectly(page: Page, text: string) {
-  const COMMENT_TEXTBOX_SELECTOR =`
-        div[aria-label="Komentari sebagai Peserta anonim"] | div[aria-label="Comment as Anonymous participant"]
-      `;
+  
   try {
-    const commentTextbox = await page.waitForSelector(COMMENT_TEXTBOX_SELECTOR, { visible: true, timeout: 15000 });
+    const commentTextbox = await page.waitForSelector('div[aria-label="Komentari sebagai Peserta anonim"]', { visible: true, timeout: 15000 });
     if (!commentTextbox) return false;
 
     await commentTextbox.focus();
@@ -284,24 +277,15 @@ async function attemptPostingWithRetries(
     if (job.stopRequested) return false;
 
     try {
-      const anonBtnSelec =`
-        [aria-label="Postingan anonim"] | [aria-label="Anonymous post"]
-      `;
-
-      const anonBtn = await page.waitForSelector(anonBtnSelec, { timeout: 10000 }).catch(()=>null);
+      const anonBtn = await page.waitForSelector("[aria-label='Postingan anonim']", { timeout: 10000 }).catch(()=>null);
       if(anonBtn){
       if (job.stopRequested) return false;
       if (anonBtn) await anonBtn.click().catch(()=>{});
-      const createAnonBtnSelec =`
-        //span[text()="Buat Postingan Anonim"] | //span[text()="Create Anonymous Post"]
-      `;
-      const createAnonBtn = await page.waitForSelector(createAnonBtnSelec,{ timeout: 10000 }).catch(()=>null);
+   
+      const createAnonBtn = await page.waitForSelector('xpath///span[text()="Buat Postingan Anonim"]',{ timeout: 10000 }).catch(()=>null);
       if (job.stopRequested) return false;
       if (createAnonBtn) await createAnonBtn.click().catch(()=>{});
-        const textAreaSelector =`
-        [aria-placeholder="Kirim postingan anonim..."] | [aria-placeholder="Submit an anonymous post..."]
-      `;
-      await page.waitForSelector(textAreaSelector, { visible: true, timeout: 10000 }).catch(()=>{});
+      await page.waitForSelector('[aria-placeholder="Kirim postingan anonim..."]', { visible: true, timeout: 10000 }).catch(()=>{});
       if (job.stopRequested) return false;
 
       // pilih gambar
@@ -314,19 +298,45 @@ async function attemptPostingWithRetries(
         await fileChooser.accept([imagePath]);
       }
 
-      await page.type(textAreaSelector, captionText);
+      await page.type('[aria-placeholder="Kirim postingan anonim..."]', captionText);
 
-      // tunggu tombol "Kirim" aktif
-      const postButtonSelector =`
-        [aria-label="Kirim"][role="button"] | [aria-label="Submit"][role="button"]
-      `;
+      await page.waitForSelector('[aria-label="Kirim"][role="button"]', { visible: true, timeout: 60000 });
+ 
+      await page.click('[aria-label="Kirim"][role="button"]');
+      const commentOk = await postCommentDirectly(page, text);
 
-      await page.waitForSelector(postButtonSelector, { visible: true, timeout: 60000 });
-      // klik kirim
-      await page.click(postButtonSelector);
+      if (commentOk) {
+        results.push({ post: true, comment: true, message: 'Postingan dan komentar berhasil' });
+      } else {
+        results.push({ post: true, comment: false, message: 'Postingan ditangguhkan' });
+      }
 
+    }else{
+     const altAnonBtn = await page.waitForSelector("[aria-label='Anonymous post']", { timeout: 10000 }).catch(()=>null);
+     if(altAnonBtn){
+     if (altAnonBtn) await altAnonBtn.click().catch(()=>{});
 
-      // coba komentar setelah posting
+       const createAnonBtn = await page.waitForSelector('xpath///span[text()="Create Anonymous Post"]',{ timeout: 10000 }).catch(()=>null);
+      if (job.stopRequested) return false;
+      if (createAnonBtn) await createAnonBtn.click().catch(()=>{});
+      await page.waitForSelector('[aria-placeholder="Submit anonymous post..."]', { visible: true, timeout: 10000 }).catch(()=>{});
+      if (job.stopRequested) return false;
+
+      // pilih gambar
+      const [fileChooser] = await Promise.all([
+        page.waitForFileChooser({ timeout: 10000 }),
+        page.click('div[aria-label="Foto/video"]').catch(()=>{})
+      ]);
+      if (job.stopRequested) return false;
+      if (fileChooser) {
+        await fileChooser.accept([imagePath]);
+      }
+
+      await page.type('[aria-placeholder="Submit anonymous post..."]', captionText);
+
+      await page.waitForSelector('[aria-label="Submit"][role="button"]', { visible: true, timeout: 60000 });
+ 
+      await page.click('[aria-label="Submit"][role="button"]');
       const commentOk = await postCommentDirectly(page, text);
 
       if (commentOk) {
@@ -343,24 +353,15 @@ async function attemptPostingWithRetries(
 
       await page.goto(buySellUrl, { waitUntil: 'networkidle2', timeout: 30000 }).catch(() => {});
       if (job.stopRequested) return false;
-      const anonBtnSelec =`
-        [aria-label="Postingan anonim"] | [aria-label="Anonymous post"]
-      `;
-      const anonBtn = await page.waitForSelector(anonBtnSelec, { timeout: 10000 }).catch(()=>null);
+      const anonBtn = await page.waitForSelector("[aria-label='Postingan anonim']", { timeout: 10000 }).catch(()=>null);
       if (job.stopRequested) return false;
       if (anonBtn) await anonBtn.click().catch(()=>{});
 
-      const createAnonBtnSelec =`
-        //span[text()="Buat Postingan Anonim"] | //span[text()="Create Anonymous Post"]
-      `;
-      const createAnonBtn = await page.waitForSelector(createAnonBtnSelec,{ timeout: 10000 }).catch(()=>null);
+      const createAnonBtn = await page.waitForSelector('xpath///span[text()="Buat Postingan Anonim"]',{ timeout: 10000 }).catch(()=>null);
       if (job.stopRequested) return false;
       if (createAnonBtn) await createAnonBtn.click().catch(()=>{});
 
-      const textAreaSelector =`
-        [aria-placeholder="Kirim postingan anonim..."] | [aria-placeholder="Submit an anonymous post..."]
-      `;
-      await page.waitForSelector(textAreaSelector, { visible: true, timeout: 10000 }).catch(()=>{});
+      await page.waitForSelector('div[aria-placeholder="Kirim postingan anonim..."]', { visible: true, timeout: 10000 }).catch(()=>{});
       if (job.stopRequested) return false;
 
       // pilih gambar
@@ -373,14 +374,11 @@ async function attemptPostingWithRetries(
         await fileChooser.accept([imagePath]);
       }
 
-      await page.type(textAreaSelector, captionText);
+      await page.type('[aria-placeholder="Kirim postingan anonim..."]', captionText);
 
-      const postButtonSelector =`
-        [aria-label="Kirim"][role="button"] | [aria-label="Submit"][role="button"]
-      `;
-      await page.waitForSelector(postButtonSelector, { visible: true, timeout: 60000 });
+      await page.waitForSelector('[aria-label="Kirim"][role="button"]', { visible: true, timeout: 60000 });
  
-      await page.click(postButtonSelector);
+      await page.click('[aria-label="Kirim"][role="button"]');
 
       const commentOk = await postCommentDirectly(page, text);
 
@@ -390,7 +388,8 @@ async function attemptPostingWithRetries(
         results.push({ post: true, comment: false, message: 'Postingan ditangguhkan' });
       }
     }
-
+  }
+  
       return true;
 
     } catch (err) {
