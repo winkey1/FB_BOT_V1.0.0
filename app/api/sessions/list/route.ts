@@ -21,7 +21,7 @@ export async function GET(req: Request) {
   const numB = parseInt(b.name.toLowerCase().replace('fb', ''), 10);
   return numA - numB;
 });
-console.log(sessions.map(s => s.name));
+
 
   return NextResponse.json({ sessions });
 }
