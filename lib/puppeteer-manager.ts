@@ -285,7 +285,7 @@ async function attemptPostingWithRetries(
 
     try {
       const anonBtnSelec =`
-        //span[text()="Postingan Anonim"] | //span[text()="Anonymous post"]
+        [aria-label="Postingan anonim"] | [aria-label="Anonymous post"]
       `;
 
       const anonBtn = await page.waitForSelector(anonBtnSelec, { timeout: 10000 }).catch(()=>null);
@@ -344,7 +344,7 @@ async function attemptPostingWithRetries(
       await page.goto(buySellUrl, { waitUntil: 'networkidle2', timeout: 30000 }).catch(() => {});
       if (job.stopRequested) return false;
       const anonBtnSelec =`
-        //span[text()="Postingan Anonim"] | //span[text()="Anonymous post"]
+        [aria-label="Postingan anonim"] | [aria-label="Anonymous post"]
       `;
       const anonBtn = await page.waitForSelector(anonBtnSelec, { timeout: 10000 }).catch(()=>null);
       if (job.stopRequested) return false;
