@@ -248,17 +248,26 @@ async function postCommentDirectly(page: Page, text: string) {
   
   try {
     const commentTextbox = await page.waitForSelector('div[aria-label="Komentari sebagai Peserta anonim"]', { visible: true, timeout: 15000 });
+    
+
     if (!commentTextbox) return false;
 
     await commentTextbox.focus();
-    await page.keyboard.type(text, { delay: 80 }); 
-    await delay(5000);
+    await page.keyboard.type(text, { delay: 100 }); 
     await page.keyboard.press('Enter'); 
-
+    await delay(15000);
     return true;
-  } catch (error) {
-    console.error("⚠️ Gagal mengirim komentar:", error);
-    return false;
+  } catch {
+    const altCommentTextbox = await page.waitForSelector('div[aria-label="Comment as Anonymous participant"]', { visible: true, timeout: 15000 });
+    await delay(15000);
+
+    if (!altCommentTextbox) return false;
+
+    await altCommentTextbox.focus();
+    await page.keyboard.type(text, { delay: 100 }); 
+    await page.keyboard.press('Enter'); 
+    await delay(15000);
+    return true;
   }
 }
 
@@ -316,9 +325,9 @@ async function attemptPostingWithRetries(
      if(altAnonBtn){
      if (altAnonBtn) await altAnonBtn.click().catch(()=>{});
 
-       const createAnonBtn = await page.waitForSelector('xpath///span[text()="Create Anonymous Post"]',{ timeout: 10000 }).catch(()=>null);
+       const createAltAnonBtn = await page.waitForSelector('xpath///span[text()="Create Anonymous Post"]',{ timeout: 10000 }).catch(()=>null);
       if (job.stopRequested) return false;
-      if (createAnonBtn) await createAnonBtn.click().catch(()=>{});
+      if (createAltAnonBtn) await createAltAnonBtn.click().catch(()=>{});
       await page.waitForSelector('[aria-placeholder="Submit anonymous post..."]', { visible: true, timeout: 10000 }).catch(()=>{});
       if (job.stopRequested) return false;
 
